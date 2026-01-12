@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { TTSConfig } from '../types';
+import { TTSConfig, VoiceInfo } from '../types';
 
 interface GenerateResponse {
   success: boolean;
@@ -86,20 +86,40 @@ export const createZip = async (files: { name: string; blob: Blob }[]): Promise<
 
 export const fetchUserSubscription = async (apiKey: string) => {
     try {
-        const response = await fetch("https://api.elevenlabs.io/v1/user", {
+        const response = await fetch("https://api.elevenlabs.io/v1/user/subscription", {
             headers: { "xi-api-key": apiKey }
         });
         if (response.ok) {
             const data = await response.json();
-            const charLimit = data.subscription.character_limit;
-            const charCount = data.subscription.character_count;
             return {
-                remaining: charLimit - charCount,
-                valid: true
+                remaining: data.character_limit - data.character_count,
+                limit: data.character_limit,
+                valid: true,
+                tier: data.tier,
+                next_reset: data.next_character_count_reset_unix
             };
         }
-        return { remaining: 0, valid: false };
+        return { remaining: 0, limit: 0, valid: false, tier: 'Unknown' };
     } catch {
-        return { remaining: 0, valid: false };
+        return { remaining: 0, limit: 0, valid: false, tier: 'Error' };
+    }
+}
+
+export const getVoices = async (apiKey: string): Promise<VoiceInfo[]> => {
+    try {
+        const response = await fetch("https://api.elevenlabs.io/v1/voices", {
+            headers: { "xi-api-key": apiKey }
+        });
+        if (response.ok) {
+            const data = await response.json();
+            return data.voices.map((v: any) => ({
+                voice_id: v.voice_id,
+                name: v.name,
+                category: v.category
+            }));
+        }
+        return [];
+    } catch {
+        return [];
     }
 }

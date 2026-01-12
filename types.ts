@@ -29,3 +29,19 @@ export enum AppStatus {
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
 }
+
+export interface VoiceInfo {
+  voice_id: string;
+  name: string;
+  category: string;
+}
+
+export interface ApiKeyDetails {
+  key: string; // The masked key or identifier
+  valid: boolean;
+  remainingCredits: number;
+  characterLimit: number;
+  resetDate?: string;
+  tier?: string;
+  voices: VoiceInfo[];
+}

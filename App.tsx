@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Play, Download, Settings, FileText, CheckCircle, AlertCircle, Loader2, Save } from 'lucide-react';
+import { Upload, Play, Download, Settings, FileText, CheckCircle, AlertCircle, Loader2, Save, Info, X, Copy, Database } from 'lucide-react';
 import JSZip from 'jszip'; 
-import { TTSConfig, ProcessingLog, AppStatus } from './types';
+import { TTSConfig, ProcessingLog, AppStatus, ApiKeyDetails } from './types';
 import { readFileAsText, parseTextBlocks, maskApiKey } from './services/utils';
-import { generateVoice, createZip, fetchUserSubscription } from './services/elevenLabsService';
+import { generateVoice, createZip, fetchUserSubscription, getVoices } from './services/elevenLabsService';
 import { SliderControl, SelectControl } from './components/SettingsControl';
 
 const DEFAULT_CONFIG: TTSConfig = {
@@ -48,6 +48,11 @@ export default function App() {
   const [logs, setLogs] = useState<ProcessingLog[]>([]);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [progress, setProgress] = useState(0);
+  
+  // API Info State
+  const [isCheckingKeys, setIsCheckingKeys] = useState(false);
+  const [apiDetails, setApiDetails] = useState<ApiKeyDetails[]>([]);
+  const [showApiModal, setShowApiModal] = useState(false);
 
   const isV3 = config.modelId === 'eleven_v3';
 
@@ -68,6 +73,8 @@ export default function App() {
         const keys = content.split('\n').map(k => k.trim()).filter(k => k.length > 0);
         setApiKeys(keys);
         setFilesLoaded(prev => ({ ...prev, api: file.name }));
+        // Reset api details when new file loaded
+        setApiDetails([]);
       } else if (type === 'voice') {
         setVoiceId(content.trim());
         setFilesLoaded(prev => ({ ...prev, voice: file.name }));
@@ -78,6 +85,40 @@ export default function App() {
     } catch (err) {
       alert('Failed to read file');
     }
+  };
+
+  const handleCheckApiKeys = async () => {
+    if (apiKeys.length === 0) {
+      alert("Please upload API keys file first.");
+      return;
+    }
+    
+    setIsCheckingKeys(true);
+    const details: ApiKeyDetails[] = [];
+
+    for (const key of apiKeys) {
+       const [subData, voicesData] = await Promise.all([
+         fetchUserSubscription(key),
+         getVoices(key)
+       ]);
+
+       details.push({
+         key: maskApiKey(key),
+         valid: subData.valid,
+         remainingCredits: subData.remaining,
+         characterLimit: subData.limit,
+         tier: subData.tier,
+         voices: voicesData
+       });
+    }
+
+    setApiDetails(details);
+    setIsCheckingKeys(false);
+    setShowApiModal(true);
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
   };
 
   const runBatch = async () => {
@@ -221,13 +262,19 @@ export default function App() {
           </div>
         </div>
         <div className="flex gap-2 text-xs font-mono text-slate-500">
+          <button 
+            onClick={() => { if(apiDetails.length > 0) setShowApiModal(true); }}
+            className={`flex items-center gap-2 px-3 py-1 rounded-full border border-slate-800 bg-slate-900 hover:bg-slate-800 transition-colors ${apiDetails.length > 0 ? 'text-indigo-400 border-indigo-500/30' : ''}`}
+          >
+             <Database size={12} /> {apiDetails.length > 0 ? 'API INFO' : 'NO INFO'}
+          </button>
           <span className={`px-2 py-1 rounded-full border ${status === AppStatus.PROCESSING ? 'border-amber-500/30 text-amber-500 bg-amber-500/10' : 'border-slate-800 bg-slate-900'}`}>
              {status === AppStatus.IDLE ? 'READY' : status === AppStatus.PROCESSING ? 'PROCESSING...' : 'DONE'}
           </span>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 relative">
         {/* Left Column: Inputs & Settings */}
         <div className="lg:col-span-4 space-y-6">
           
@@ -238,7 +285,19 @@ export default function App() {
             </h2>
             
             <div className="space-y-3">
-              <FileInput label="API Keys (.txt)" accepted=".txt" loadedName={filesLoaded.api} onChange={(e) => handleFileUpload(e, 'api')} />
+              <div className="space-y-1">
+                 <FileInput label="API Keys (.txt)" accepted=".txt" loadedName={filesLoaded.api} onChange={(e) => handleFileUpload(e, 'api')} />
+                 {apiKeys.length > 0 && (
+                     <button 
+                       onClick={handleCheckApiKeys}
+                       disabled={isCheckingKeys}
+                       className="w-full mt-2 text-xs flex items-center justify-center gap-2 py-2 bg-indigo-900/20 text-indigo-300 hover:bg-indigo-900/30 border border-indigo-500/20 rounded-lg transition-all"
+                     >
+                        {isCheckingKeys ? <Loader2 size={12} className="animate-spin" /> : <Info size={12} />}
+                        {isCheckingKeys ? 'Checking Keys...' : 'Check Credits & Voices'}
+                     </button>
+                 )}
+              </div>
               <FileInput label="Voice ID (.txt)" accepted=".txt" loadedName={filesLoaded.voice} onChange={(e) => handleFileUpload(e, 'voice')} />
               <FileInput label="Texts (.txt)" accepted=".txt" loadedName={filesLoaded.text} onChange={(e) => handleFileUpload(e, 'text')} />
             </div>
@@ -444,6 +503,75 @@ export default function App() {
              </div>
           </div>
         </div>
+
+        {/* API Details Modal */}
+        {showApiModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+             <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl">
+                <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+                   <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                      <Database className="text-indigo-400" size={20} /> API Details
+                   </h2>
+                   <button onClick={() => setShowApiModal(false)} className="text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800">
+                      <X size={20} />
+                   </button>
+                </div>
+                <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar">
+                   {apiDetails.map((detail, idx) => (
+                      <div key={idx} className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+                         <div className="bg-slate-900/50 p-3 border-b border-slate-800 flex flex-wrap gap-4 items-center justify-between">
+                            <div className="flex items-center gap-3">
+                               <div className={`w-2 h-2 rounded-full ${detail.valid ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                               <span className="font-mono text-sm text-slate-300">{detail.key}</span>
+                               {detail.tier && <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400">{detail.tier}</span>}
+                            </div>
+                            <div className="flex items-center gap-6 text-sm">
+                               <div>
+                                  <span className="text-slate-500 mr-2">Remaining:</span>
+                                  <span className={`font-mono font-bold ${detail.remainingCredits > 1000 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                     {detail.remainingCredits.toLocaleString()}
+                                  </span>
+                                  <span className="text-slate-600 mx-1">/</span>
+                                  <span className="text-slate-600">{detail.characterLimit.toLocaleString()}</span>
+                               </div>
+                            </div>
+                         </div>
+                         
+                         <div className="p-3">
+                            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Available Voices ({detail.voices.length})</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                               {detail.voices.length > 0 ? detail.voices.map(voice => (
+                                  <div key={voice.voice_id} className="group flex items-center justify-between bg-slate-900 border border-slate-800 p-2 rounded hover:border-indigo-500/30 transition-colors">
+                                     <div className="overflow-hidden">
+                                        <div className="text-sm text-slate-200 truncate">{voice.name}</div>
+                                        <div className="text-[10px] font-mono text-slate-500 truncate">{voice.voice_id}</div>
+                                     </div>
+                                     <button 
+                                        onClick={() => copyToClipboard(voice.voice_id)}
+                                        className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-all"
+                                        title="Copy Voice ID"
+                                     >
+                                        <Copy size={12} />
+                                     </button>
+                                  </div>
+                               )) : (
+                                  <div className="col-span-full text-center text-xs text-slate-600 py-2">
+                                     No voices found or failed to fetch.
+                                  </div>
+                               )}
+                            </div>
+                         </div>
+                      </div>
+                   ))}
+                </div>
+                <div className="p-4 border-t border-slate-800 bg-slate-900 rounded-b-2xl flex justify-end">
+                   <button onClick={() => setShowApiModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors">
+                      Close
+                   </button>
+                </div>
+             </div>
+          </div>
+        )}
       </main>
     </div>
   );
