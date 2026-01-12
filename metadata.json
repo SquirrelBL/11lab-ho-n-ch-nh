@@ -1,0 +1,5 @@
+{
+  "name": "ElevenLab - Q",
+  "description": "A professional, local-host web interface for ElevenLabs TTS generation with multi-key support and batch processing.",
+  "requestFramePermissions": []
+}
